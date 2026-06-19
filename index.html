@@ -12,8 +12,8 @@
     <!-- Estilos customizados do projeto -->
     <link rel="stylesheet" href="css/styles.css">
 
-    <!-- TODO (Etapa 2/3): Supabase substituirá o backend simulado em js/demo-backend.js -->
-    <!-- <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script> -->
+    <!-- Cliente Supabase (banco de dados real) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-gradient-to-br from-slate-50 to-indigo-100 min-h-screen">
     <!-- Notification System -->
@@ -1950,6 +1950,7 @@
     <!-- ============================================ -->
     <!-- SCRIPTS DA APLICAÇÃO (carregados em ordem de dependência) -->
     <!-- ============================================ -->
+    <script src="js/supabase-config.js"></script>
     <script src="js/demo-backend.js"></script>
     <script src="js/app-state.js"></script>
     <script src="js/utils.js"></script>
