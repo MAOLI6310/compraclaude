@@ -26,7 +26,7 @@
             }
         }
 
-        function updateProfile() {
+        async function updateProfile() {
             const name = document.getElementById('profileName').value;
             const email = document.getElementById('profileEmail').value;
             
@@ -35,13 +35,24 @@
                 return;
             }
             
-            // Update current user
-            if (currentUser) {
-                currentUser.name = name;
-                currentUser.email = email;
-                updateUserInterface();
-                showNotification('Perfil Atualizado!', 'Suas informações foram salvas com sucesso', 'success');
+            if (!currentUser) return;
+
+            // Atualiza o nome na tabela profiles (o e-mail é gerenciado
+            // pela autenticação do Supabase, não fica em "profiles")
+            const { error } = await supabaseClient
+                .from('profiles')
+                .update({ full_name: name })
+                .eq('id', currentUser.uid);
+
+            if (error) {
+                console.error('Erro ao atualizar perfil:', error);
+                showNotification('Erro', 'Não foi possível salvar as alterações', 'error');
+                return;
             }
+
+            currentUser.name = name;
+            updateUserInterface();
+            showNotification('Perfil Atualizado!', 'Suas informações foram salvas com sucesso', 'success');
         }
 
         function cancelSubscription() {

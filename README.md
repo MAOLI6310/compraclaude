@@ -132,3 +132,75 @@ site, só significa que a conexão real ainda não foi configurada.
 **Etapa 3:** Trocar o sistema de login/cadastro simulado pela
 autenticação real do Supabase.
 
+---
+
+# Etapa 3: Login e Cadastro Reais (Supabase Auth)
+
+## O que foi feito
+
+- `js/auth.js` — reescrito do zero. Login, cadastro e logout agora
+  usam `supabaseClient.auth` de verdade, e os dados do usuário (nome,
+  CPF, plano, etc.) são lidos/gravados na tabela `profiles` do banco.
+- `js/subscription.js` — corrigido para gravar o plano escolhido
+  direto na tabela `profiles` (antes chamava um banco fake que não
+  existe mais).
+- `js/account.js` — a função "Salvar Alterações" do perfil agora
+  grava de verdade no banco.
+- `js/init.js` — removido o login automático de teste
+  (`testLogin()`) que logava um usuário fake ao carregar a página.
+  Agora quem entra logado é só quem realmente tem uma sessão válida.
+- `js/demo-backend.js` — esvaziado (não é mais carregado pelo
+  `index.html`). Mantido só como referência histórica.
+- `js/app-state.js` — adicionado `PLAN_INFO`, um "dicionário" com os
+  planos disponíveis (`basico` e `premium`) e seus preços, usado em
+  vários lugares pra manter tudo consistente com o banco.
+
+## ⚠️ Passo obrigatório antes de testar: configurar confirmação de e-mail
+
+Por padrão, o Supabase exige que o usuário **confirme o e-mail** antes
+de poder logar (ele recebe um link por e-mail). Isso é ótimo para
+produção, mas atrapalha os testes agora, porque sem confirmar o
+e-mail a conta fica "pendente" e alguns dados do cadastro (CPF,
+plano) não terminam de ser salvos.
+
+**Para testar mais facilmente agora, desative essa exigência temporariamente:**
+
+1. No painel do Supabase, vá em **Authentication**
+2. Procure por **"Providers"** (ou "Sign In / Providers") → **Email**
+3. Desative a opção **"Confirm email"**
+4. Salve
+
+(Você pode reativar isso mais pra frente, quando o site estiver perto
+de ir ao ar de verdade — é só uma questão de segurança extra, não
+afeta o funcionamento básico.)
+
+## Como testar
+
+1. Suba os arquivos alterados para o GitHub: `index.html`,
+   `js/auth.js`, `js/subscription.js`, `js/account.js`, `js/init.js`,
+   `js/demo-backend.js`, `js/app-state.js`
+2. Espera o Vercel atualizar o site
+3. Abre o site — agora ele deve abrir **deslogado** (sem o "João
+   Silva" automático de antes)
+4. Clica em **"Criar Conta"**, preenche os dados e cria uma conta de
+   teste
+5. Confere no Supabase, em **Table Editor → profiles**, se apareceu
+   uma linha nova com seu nome, CPF e plano
+6. Testa fazer **logout** e **login** de novo com essa conta
+
+## O que ainda não está pronto
+
+- O **carrinho** ainda não é salvo no banco (continua sumindo se você
+  recarregar a página) — isso entra na Etapa 6
+- O **e-mail de boas-vindas** é só simulado (aparece no console do
+  navegador, não chega de verdade na caixa de entrada) — sem provedor
+  de e-mail configurado ainda
+- O **pagamento** continua sendo uma simulação visual (a "aprovação"
+  é só uma animação) — pagamento de verdade é a Etapa 7
+
+## Próxima etapa
+
+**Etapa 4:** Conectar a busca e comparação de produtos ao banco de
+dados real (hoje ainda mostra produtos inventados aleatoriamente).
+
+

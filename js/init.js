@@ -1,55 +1,28 @@
 // ============================================
 // INICIALIZAÇÃO DA PÁGINA
 // ============================================
+// O login automático de teste (testLogin) foi removido nesta etapa.
+// Agora quem controla se o usuário está logado é a sessão real do
+// Supabase (veja o listener supabaseClient.auth.onAuthStateChange,
+// no final de js/auth.js) — ele roda sozinho assim que a página
+// carrega e verifica se já existe uma sessão salva no navegador.
+// ============================================
 
-        function testLogin() {
-            currentUser = {
-                uid: 'test_user_123',
-                name: 'João Silva',
-                email: 'joao@teste.com',
-                plan: 'Premium',
-                paymentMethod: 'credit',
-                createdAt: new Date(),
-                savings: 156.80,
-                isTrialActive: false,
-                trialEndsAt: null,
-                cpf: '123.456.789-00'
-            };
-            
-            isLoggedIn = true;
-            cart = []; // Start with empty cart
-            
-            updateUserInterface();
-            updateCartDisplay();
-            
-            showNotification('Login de Teste!', 'Usuário João Silva logado com sucesso', 'success');
-            
-            console.log('TEST LOGIN ACTIVATED');
-            console.log('Current User:', currentUser);
-            console.log('Is Logged In:', isLoggedIn);
-        }
-
-        // Initialize page
-        document.addEventListener('DOMContentLoaded', function() {
-            // Close modals when clicking outside
-            document.querySelectorAll('.modal').forEach(modal => {
-                modal.addEventListener('click', function(e) {
-                    if (e.target === modal) {
-                        modal.classList.remove('active');
-                    }
-                });
-            });
-            
-            // Initialize user interface
-            updateUserInterface();
-            updateCartDisplay();
-            
-            // Initialize form handlers
-            handlePlanSelection();
-            handlePaymentSelection();
-            
-            // AUTO TEST LOGIN - REMOVE IN PRODUCTION
-            setTimeout(() => {
-                testLogin();
-            }, 1000);
+document.addEventListener('DOMContentLoaded', function() {
+    // Close modals when clicking outside
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                modal.classList.remove('active');
+            }
         });
+    });
+
+    // Initialize user interface (começa "deslogado" até o Supabase confirmar a sessão)
+    updateUserInterface();
+    updateCartDisplay();
+
+    // Initialize form handlers
+    handlePlanSelection();
+    handlePaymentSelection();
+});

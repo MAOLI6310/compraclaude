@@ -7,24 +7,18 @@
                 showSignupModal();
                 return;
             }
-            
-            const planNames = {
-                'pro': 'Pro',
-                'premium': 'Premium',
-                'saudavel': '+Saudável'
-            };
-            
-            const planPrices = {
-                'pro': 9.90,
-                'premium': 19.90,
-                'saudavel': 29.90
-            };
-            
+
+            const planInfo = PLAN_INFO[planType];
+            if (!planInfo) {
+                console.error('Plano desconhecido:', planType);
+                return;
+            }
+
             // Show payment processing modal
-            showPaymentProcessingModal(planNames[planType], planPrices[planType]);
+            showPaymentProcessingModal(planType, planInfo.label, planInfo.price);
         }
 
-        function showPaymentProcessingModal(planName, planPrice) {
+        function showPaymentProcessingModal(planKey, planName, planPrice) {
             let modal = document.getElementById('paymentProcessingModal');
             if (!modal) {
                 modal = document.createElement('div');
@@ -84,31 +78,33 @@
                 document.getElementById('processingStep2').classList.add('hidden');
                 document.getElementById('processingStep3').classList.remove('hidden');
                 
-                // Update user plan in Firebase
+                // Update user plan in Supabase
                 if (currentUser) {
                     try {
-                        await db.collection('users').doc(currentUser.uid).update({
-                            selectedPlan: planName,
-                            planPrice: planPrice,
-                            paymentStatus: 'active',
-                            lastPayment: new Date(),
-                            nextBilling: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
-                        });
-                        
+                        const { error } = await supabaseClient
+                            .from('profiles')
+                            .update({
+                                plan: planKey,
+                                subscription_status: 'active'
+                            })
+                            .eq('id', currentUser.uid);
+
+                        if (error) throw error;
+
                         // Update current user object
                         currentUser.plan = planName;
                         updateUserInterface();
-                        
+
                         // Log payment event
                         await logUserEvent('payment_processed', {
-                            plan: planName,
+                            plan: planKey,
                             amount: planPrice,
                             paymentMethod: currentUser.paymentMethod || 'credit'
                         });
-                        
+
                         // Send payment confirmation email
                         await sendPaymentConfirmationEmail(currentUser.email, currentUser.name, planName, planPrice);
-                        
+
                     } catch (error) {
                         console.error('Error updating user plan:', error);
                     }

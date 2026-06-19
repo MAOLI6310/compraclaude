@@ -1,480 +1,309 @@
 // ============================================
-// AUTENTICAÇÃO
-// Login, cadastro, logout, sessão do usuário
+// AUTENTICAÇÃO (Etapa 3 — Supabase real)
+// Login, cadastro, logout e sessão do usuário,
+// agora usando o banco de dados de verdade.
 // ============================================
 
-        async function handleLogin(event) {
-            event.preventDefault();
-            const email = event.target.querySelector('input[type="email"]').value;
-            const password = event.target.querySelector('input[type="password"]').value;
-            
-            showNotification('Entrando...', 'Verificando suas credenciais', 'info');
-            
-            try {
-                const userCredential = await auth.signInWithEmailAndPassword(email, password);
-                const user = userCredential.user;
-                
-                // Get user data from demo database
-                const userDoc = await db.collection('users').doc(user.uid).get();
-                if (userDoc.exists) {
-                    const userData = userDoc.data();
-                    
-                    // Set current user in localStorage
-                    localStorage.setItem('currentDemoUser', JSON.stringify({
-                        uid: user.uid,
-                        email: user.email
-                    }));
-                    
-                    currentUser = {
-                        uid: user.uid,
-                        name: userData.fullName,
-                        email: user.email,
-                        plan: userData.selectedPlan || 'Pro',
-                        paymentMethod: userData.paymentMethod,
-                        createdAt: userData.createdAt,
-                        savings: userData.totalSavings || 0,
-                        isTrialActive: userData.isTrialActive || false,
-                        trialEndsAt: userData.trialEndsAt
-                    };
-                    
-                    isLoggedIn = true;
-                    updateUserInterface();
-                    closeModal('loginModal');
-                    showNotification('Bem-vindo!', `Olá, ${currentUser.name}!`, 'success');
-                    
-                    // Load user's cart if exists
-                    loadUserCart();
-                } else {
-                    throw { code: 'auth/user-not-found' };
-                }
-            } catch (error) {
-                console.error('Login error:', error);
-                let errorMessage = 'Erro ao fazer login';
-                
-                switch(error.code) {
-                    case 'auth/user-not-found':
-                        errorMessage = 'Usuário não encontrado';
-                        break;
-                    case 'auth/wrong-password':
-                        errorMessage = 'Senha incorreta';
-                        break;
-                    case 'auth/invalid-email':
-                        errorMessage = 'Email inválido';
-                        break;
-                    case 'auth/too-many-requests':
-                        errorMessage = 'Muitas tentativas. Tente novamente mais tarde';
-                        break;
-                }
-                
-                showNotification('Erro', errorMessage, 'error');
+async function handleLogin(event) {
+    event.preventDefault();
+    const email = event.target.querySelector('input[type="email"]').value;
+    const password = event.target.querySelector('input[type="password"]').value;
+
+    showNotification('Entrando...', 'Verificando suas credenciais', 'info');
+
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
+    if (error) {
+        let errorMessage = 'Erro ao fazer login';
+        if (error.message.includes('Invalid login credentials')) {
+            errorMessage = 'E-mail ou senha incorretos';
+        } else if (error.message.includes('Email not confirmed')) {
+            errorMessage = 'Confirme seu e-mail antes de entrar (verifique sua caixa de entrada)';
+        }
+        showNotification('Erro', errorMessage, 'error');
+        return;
+    }
+
+    // O listener onAuthStateChange (no fim deste arquivo) cuida de
+    // carregar o perfil do usuário e atualizar a tela automaticamente.
+    closeModal('loginModal');
+    showNotification('Bem-vindo!', 'Login realizado com sucesso', 'success');
+}
+
+async function handleSignup(event) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+
+    const name = formData.get('fullName');
+    const cpf = formData.get('cpf');
+    const email = formData.get('email');
+    const password = formData.get('password');
+    const selectedPlan = formData.get('selectedPlan'); // 'pro' ou 'premium' (vem do formulário)
+    const paymentMethod = formData.get('paymentMethod');
+
+    if (!name || !cpf || !email || !password || !selectedPlan || !paymentMethod) {
+        showNotification('Erro', 'Preencha todos os campos obrigatórios', 'error');
+        return;
+    }
+
+    if (!isValidCPF(cpf)) {
+        showNotification('Erro', 'CPF inválido. Verifique o formato.', 'error');
+        return;
+    }
+
+    if (paymentMethod === 'credit') {
+        const cardNumber = formData.get('cardNumber');
+        const cardName = formData.get('cardName');
+        const cardExpiry = formData.get('cardExpiry');
+        const cardCVV = formData.get('cardCVV');
+        if (!cardNumber || !cardName || !cardExpiry || !cardCVV) {
+            showNotification('Erro', 'Preencha todos os dados do cartão', 'error');
+            return;
+        }
+    }
+
+    showNotification('Criando conta...', 'Processando seus dados', 'info');
+
+    // O formulário usa o valor "pro" para o plano de entrada — mapeamos
+    // para a chave "basico" usada no banco (PLAN_INFO, em app-state.js).
+    const planKey = selectedPlan === 'premium' ? 'premium' : 'basico';
+
+    const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: name } }
+    });
+
+    if (error) {
+        let errorMessage = 'Erro ao criar conta';
+        if (error.message.includes('already registered') || error.message.includes('already in use')) {
+            errorMessage = 'Este e-mail já está em uso';
+        } else if (error.message.includes('Password should be') || error.message.includes('at least 6')) {
+            errorMessage = 'Senha muito fraca. Use pelo menos 6 caracteres';
+        }
+        showNotification('Erro', errorMessage, 'error');
+        return;
+    }
+
+    const user = data.user;
+    if (!user) {
+        showNotification('Erro', 'Não foi possível criar a conta', 'error');
+        return;
+    }
+
+    // Um gatilho (trigger) no banco já criou automaticamente uma linha em
+    // "profiles" com o nome completo. Agora completamos com CPF, plano
+    // escolhido e o período de teste grátis de 7 dias.
+    const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { error: profileError } = await supabaseClient
+        .from('profiles')
+        .update({
+            cpf: cpf,
+            plan: planKey,
+            subscription_status: 'trial',
+            trial_ends_at: trialEndsAt
+        })
+        .eq('id', user.id);
+
+    if (profileError) {
+        console.error('Erro ao salvar dados do perfil:', profileError);
+        showNotification('Atenção', 'Conta criada, mas houve um problema ao salvar alguns dados do perfil', 'info');
+    }
+
+    closeModal('signupModal');
+
+    if (!data.session) {
+        // O projeto Supabase está configurado para exigir confirmação de e-mail
+        showNotification('Quase lá!', 'Enviamos um link de confirmação para o seu e-mail. Confirme para poder entrar.', 'info');
+    } else {
+        showNotification('Bem-vindo!', `Conta criada com sucesso! Plano ${PLAN_INFO[planKey].label} ativo por 7 dias grátis.`, 'success');
+        await logUserEvent('signup', { plan: planKey, paymentMethod });
+    }
+}
+
+async function logout() {
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) {
+        console.error('Logout error:', error);
+        showNotification('Erro', 'Erro ao fazer logout', 'error');
+        return;
+    }
+    showNotification('Até logo!', 'Logout realizado com sucesso', 'info');
+}
+
+// ============================================
+// E-mails transacionais
+// Ainda não conectados a um serviço de envio real.
+// Por enquanto só registram no console — entram em
+// uma etapa futura quando definirmos o provedor de e-mail.
+// ============================================
+async function sendWelcomeEmail(email, name, plan) {
+    console.log(`[e-mail simulado] Boas-vindas para ${name} (${email}) — plano ${plan}`);
+}
+
+async function sendPaymentConfirmationEmail(email, name, plan, amount) {
+    console.log(`[e-mail simulado] Confirmação de pagamento para ${name} (${email}) — ${plan}, R$ ${amount}`);
+}
+
+// ============================================
+// Eventos de analytics — placeholder simples por enquanto
+// ============================================
+async function logUserEvent(eventType, eventData = {}) {
+    console.log(`[evento] ${eventType}`, eventData);
+}
+
+// ============================================
+// Carrinho — a persistência real (tabela cart_items) entra na
+// Etapa 6, junto com a conexão dos produtos reais ao carrinho.
+// Por enquanto o carrinho some ao recarregar a página, como antes.
+// ============================================
+async function loadUserCart() {
+    // TODO (Etapa 6): carregar o carrinho salvo da tabela cart_items
+}
+
+async function saveUserCart() {
+    // TODO (Etapa 6): salvar o carrinho atual na tabela cart_items
+}
+
+// ============================================
+// Carrega o perfil (tabela "profiles") do usuário autenticado
+// ============================================
+async function loadUserProfile(user) {
+    const { data: profile, error } = await supabaseClient
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+    if (error) {
+        console.error('Erro ao carregar perfil:', error);
+        return null;
+    }
+    return profile;
+}
+
+// ============================================
+// Observador de sessão — dispara automaticamente quando o
+// usuário faz login, logout, ou quando a página carrega e já
+// existe uma sessão válida salva no navegador.
+// ============================================
+supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    if (session && session.user) {
+        const profile = await loadUserProfile(session.user);
+        const planInfo = profile && PLAN_INFO[profile.plan] ? PLAN_INFO[profile.plan] : null;
+
+        currentUser = {
+            uid: session.user.id,
+            name: (profile && profile.full_name) || session.user.email,
+            email: session.user.email,
+            cpf: profile ? profile.cpf : null,
+            plan: planInfo ? planInfo.label : 'Básico',
+            paymentMethod: null,
+            createdAt: profile ? profile.created_at : null,
+            savings: profile ? Number(profile.total_savings) : 0,
+            isTrialActive: profile ? profile.subscription_status === 'trial' : false,
+            trialEndsAt: profile ? profile.trial_ends_at : null
+        };
+
+        isLoggedIn = true;
+        updateUserInterface();
+        loadUserCart();
+    } else {
+        currentUser = null;
+        isLoggedIn = false;
+        cart = [];
+        updateUserInterface();
+        updateCartDisplay();
+    }
+});
+
+function updateUserInterface() {
+    const notLoggedIn = document.getElementById('notLoggedIn');
+    const loggedIn = document.getElementById('loggedIn');
+    const minhaContaLink = document.getElementById('minhaContaLink');
+    const cartCount = document.getElementById('cartCount');
+
+    if (isLoggedIn && currentUser) {
+        if (notLoggedIn) notLoggedIn.classList.add('hidden');
+        if (loggedIn) {
+            loggedIn.classList.remove('hidden');
+            loggedIn.style.display = 'flex';
+        }
+
+        if (minhaContaLink) {
+            minhaContaLink.classList.remove('hidden');
+            minhaContaLink.style.display = 'block';
+            minhaContaLink.style.visibility = 'visible';
+        }
+
+        if (cartCount) {
+            cartCount.classList.remove('hidden');
+            cartCount.style.display = 'flex';
+            cartCount.style.visibility = 'visible';
+            cartCount.style.opacity = '1';
+            cartCount.textContent = cart.length;
+
+            const cartButton = cartCount.closest('button');
+            if (cartButton) {
+                cartButton.classList.remove('hidden');
+                cartButton.style.display = 'block';
+                cartButton.style.visibility = 'visible';
+            }
+
+            const cartContainer = cartCount.closest('.relative');
+            if (cartContainer) {
+                cartContainer.classList.remove('hidden');
+                cartContainer.style.display = 'block';
+                cartContainer.style.visibility = 'visible';
             }
         }
 
-        async function handleSignup(event) {
-            event.preventDefault();
-            const formData = new FormData(event.target);
-            
-            const name = formData.get('fullName');
-            const cpf = formData.get('cpf');
-            const email = formData.get('email');
-            const password = formData.get('password');
-            const selectedPlan = formData.get('selectedPlan');
-            const paymentMethod = formData.get('paymentMethod');
-            
-            // Validate required fields
-            if (!name || !cpf || !email || !password || !selectedPlan || !paymentMethod) {
-                showNotification('Erro', 'Preencha todos os campos obrigatórios', 'error');
-                return;
-            }
-            
-            // Validate CPF format
-            if (!isValidCPF(cpf)) {
-                showNotification('Erro', 'CPF inválido. Verifique o formato.', 'error');
-                return;
-            }
-            
-            // If credit card is selected, validate card fields
-            if (paymentMethod === 'credit') {
-                const cardNumber = formData.get('cardNumber');
-                const cardName = formData.get('cardName');
-                const cardExpiry = formData.get('cardExpiry');
-                const cardCVV = formData.get('cardCVV');
-                
-                if (!cardNumber || !cardName || !cardExpiry || !cardCVV) {
-                    showNotification('Erro', 'Preencha todos os dados do cartão', 'error');
-                    return;
-                }
-            }
-            
-            showNotification('Criando conta...', 'Processando seus dados', 'info');
-            
-            try {
-                // Check if email already exists in demo mode
-                const savedUsers = JSON.parse(localStorage.getItem('demoUsers') || '[]');
-                if (savedUsers.find(u => u.email === email)) {
-                    throw { code: 'auth/email-already-in-use' };
-                }
-                
-                // Create user in Demo Auth
-                const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-                const user = userCredential.user;
-                
-                const planNames = {
-                    'pro': 'Pro',
-                    'premium': 'Premium',
-                    'saudavel': '+Saudável'
-                };
-                
-                const planPrices = {
-                    'pro': 9.90,
-                    'premium': 19.90,
-                    'saudavel': 29.90
-                };
-                
-                // Prepare user data
-                const userData = {
-                    uid: user.uid,
-                    fullName: name,
-                    cpf: cpf,
-                    email: email,
-                    password: password, // Only for demo mode
-                    selectedPlan: planNames[selectedPlan],
-                    planPrice: planPrices[selectedPlan],
-                    paymentMethod: paymentMethod,
-                    isTrialActive: true,
-                    trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-                    createdAt: new Date(),
-                    totalSavings: 0,
-                    status: 'trial',
-                    lastLogin: new Date()
-                };
-                
-                // Add payment method details if credit card
-                if (paymentMethod === 'credit') {
-                    userData.cardDetails = {
-                        cardNumber: formData.get('cardNumber').replace(/\s/g, '').slice(-4), // Only last 4 digits
-                        cardName: formData.get('cardName'),
-                        cardExpiry: formData.get('cardExpiry')
-                    };
-                }
-                
-                // Save user data to demo database
-                await db.collection('users').doc(user.uid).set(userData);
-                
-                // Save to demo users list
-                savedUsers.push(userData);
-                localStorage.setItem('demoUsers', JSON.stringify(savedUsers));
-                
-                // Set current user in localStorage
-                localStorage.setItem('currentDemoUser', JSON.stringify({
-                    uid: user.uid,
-                    email: user.email
-                }));
-                
-                // Update current user
-                currentUser = {
-                    uid: user.uid,
-                    name: name,
-                    email: email,
-                    plan: planNames[selectedPlan],
-                    paymentMethod: paymentMethod,
-                    savings: 0,
-                    isTrialActive: true,
-                    trialEndsAt: userData.trialEndsAt,
-                    createdAt: userData.createdAt
-                };
-                
-                isLoggedIn = true;
-                updateUserInterface();
-                closeModal('signupModal');
-                
-                // Send welcome email (simulated)
-                await sendWelcomeEmail(email, name, planNames[selectedPlan]);
-                
-                showNotification('Bem-vindo!', `Conta criada com sucesso! Plano ${planNames[selectedPlan]} ativo por 7 dias grátis.`, 'success');
-                
-                // Show trial information
-                setTimeout(() => {
-                    showNotification('Teste Grátis Ativo!', 'Aproveite 7 dias para testar todas as funcionalidades', 'info');
-                }, 2000);
-                
-                // Log signup event for analytics
-                await logUserEvent('signup', {
-                    plan: selectedPlan,
-                    paymentMethod: paymentMethod
-                });
-                
-            } catch (error) {
-                console.error('Signup error:', error);
-                let errorMessage = 'Erro ao criar conta';
-                
-                switch(error.code) {
-                    case 'auth/email-already-in-use':
-                        errorMessage = 'Este email já está em uso';
-                        break;
-                    case 'auth/weak-password':
-                        errorMessage = 'Senha muito fraca. Use pelo menos 6 caracteres';
-                        break;
-                    case 'auth/invalid-email':
-                        errorMessage = 'Email inválido';
-                        break;
-                }
-                
-                showNotification('Erro', errorMessage, 'error');
-            }
+        const userName = document.getElementById('userName');
+        const userInitials = document.getElementById('userInitials');
+        const userPlan = document.getElementById('userPlan');
+        const userSavings = document.getElementById('userSavings');
+
+        if (userName) userName.textContent = currentUser.name;
+        if (userInitials) userInitials.textContent = currentUser.name.charAt(0).toUpperCase();
+        if (userPlan) userPlan.textContent = currentUser.plan;
+        if (userSavings) userSavings.textContent = `R$ ${currentUser.savings.toFixed(2)}`;
+
+        const userNameLarge = document.getElementById('userNameLarge');
+        const userEmailLarge = document.getElementById('userEmailLarge');
+        const userInitialsLarge = document.getElementById('userInitialsLarge');
+
+        if (userNameLarge) userNameLarge.textContent = currentUser.name;
+        if (userEmailLarge) userEmailLarge.textContent = currentUser.email;
+        if (userInitialsLarge) userInitialsLarge.textContent = currentUser.name.charAt(0).toUpperCase();
+
+        const profileName = document.getElementById('profileName');
+        const profileEmail = document.getElementById('profileEmail');
+        const profileCPF = document.getElementById('profileCPF');
+
+        if (profileName) profileName.value = currentUser.name;
+        if (profileEmail) profileEmail.value = currentUser.email;
+        if (profileCPF) profileCPF.value = currentUser.cpf || '';
+
+        const currentPlanName = document.getElementById('currentPlanName');
+        const currentPlanPrice = document.getElementById('currentPlanPrice');
+
+        if (currentPlanName) currentPlanName.textContent = `Plano ${currentUser.plan}`;
+        if (currentPlanPrice) {
+            const planEntry = Object.values(PLAN_INFO).find(p => p.label === currentUser.plan);
+            currentPlanPrice.textContent = `R$ ${(planEntry ? planEntry.price : 9.90).toFixed(2)}/mês`;
         }
 
-        async function logout() {
-            try {
-                await auth.signOut();
-                
-                // Clear localStorage
-                localStorage.removeItem('currentDemoUser');
-                
-                currentUser = null;
-                isLoggedIn = false;
-                cart = [];
-                updateUserInterface();
-                updateCartDisplay();
-                showNotification('Até logo!', 'Logout realizado com sucesso', 'info');
-            } catch (error) {
-                console.error('Logout error:', error);
-                showNotification('Erro', 'Erro ao fazer logout', 'error');
-            }
+        updateCartDisplay();
+
+    } else {
+        if (notLoggedIn) notLoggedIn.classList.remove('hidden');
+        if (loggedIn) loggedIn.classList.add('hidden');
+        if (minhaContaLink) minhaContaLink.classList.add('hidden');
+
+        if (cartCount) {
+            cartCount.classList.add('hidden');
+            cartCount.style.display = 'none';
         }
-
-        // Email Functions
-        async function sendWelcomeEmail(email, name, plan) {
-            try {
-                const templateParams = {
-                    to_email: email,
-                    to_name: name,
-                    plan_name: plan,
-                    trial_days: 7,
-                    company_name: 'Compra Boa JF'
-                };
-
-                await emailjs.send('YOUR_SERVICE_ID', 'welcome_template', templateParams);
-                console.log('Welcome email sent successfully');
-            } catch (error) {
-                console.error('Error sending welcome email:', error);
-            }
-        }
-
-        async function sendPaymentConfirmationEmail(email, name, plan, amount) {
-            try {
-                const templateParams = {
-                    to_email: email,
-                    to_name: name,
-                    plan_name: plan,
-                    amount: amount,
-                    company_name: 'Compra Boa JF'
-                };
-
-                await emailjs.send('YOUR_SERVICE_ID', 'payment_confirmation_template', templateParams);
-                console.log('Payment confirmation email sent successfully');
-            } catch (error) {
-                console.error('Error sending payment confirmation email:', error);
-            }
-        }
-
-        // Analytics Functions
-        async function logUserEvent(eventType, eventData = {}) {
-            try {
-                if (currentUser) {
-                    await db.collection('analytics').add({
-                        userId: currentUser.uid,
-                        eventType: eventType,
-                        eventData: eventData,
-                        timestamp: new Date(),
-                        userAgent: navigator.userAgent,
-                        url: window.location.href
-                    });
-                }
-            } catch (error) {
-                console.error('Error logging event:', error);
-            }
-        }
-
-        // Cart Functions with Firebase
-        async function loadUserCart() {
-            if (!currentUser) return;
-            
-            try {
-                const cartDoc = await db.collection('carts').doc(currentUser.uid).get();
-                if (cartDoc.exists) {
-                    cart = cartDoc.data().items || [];
-                    updateCartDisplay();
-                }
-            } catch (error) {
-                console.error('Error loading cart:', error);
-            }
-        }
-
-        async function saveUserCart() {
-            if (!currentUser) return;
-            
-            try {
-                await db.collection('carts').doc(currentUser.uid).set({
-                    items: cart,
-                    updatedAt: new Date()
-                });
-            } catch (error) {
-                console.error('Error saving cart:', error);
-            }
-        }
-
-        // Auth State Observer
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                // User is signed in
-                try {
-                    const userDoc = await db.collection('users').doc(user.uid).get();
-                    if (userDoc.exists) {
-                        const userData = userDoc.data();
-                        currentUser = {
-                            uid: user.uid,
-                            name: userData.fullName,
-                            email: user.email,
-                            plan: userData.selectedPlan || 'Pro',
-                            paymentMethod: userData.paymentMethod,
-                            createdAt: userData.createdAt,
-                            savings: userData.totalSavings || 0,
-                            isTrialActive: userData.isTrialActive || false,
-                            trialEndsAt: userData.trialEndsAt
-                        };
-                        
-                        isLoggedIn = true;
-                        updateUserInterface();
-                        loadUserCart();
-                        
-                        // Update last login
-                        await db.collection('users').doc(user.uid).update({
-                            lastLogin: new Date()
-                        });
-                    }
-                } catch (error) {
-                    console.error('Error loading user data:', error);
-                }
-            } else {
-                // User is signed out
-                currentUser = null;
-                isLoggedIn = false;
-                cart = [];
-                updateUserInterface();
-                updateCartDisplay();
-            }
-        });
-
-        function updateUserInterface() {
-            const notLoggedIn = document.getElementById('notLoggedIn');
-            const loggedIn = document.getElementById('loggedIn');
-            const minhaContaLink = document.getElementById('minhaContaLink');
-            const cartCount = document.getElementById('cartCount');
-            
-            console.log('🔧 updateUserInterface called');
-            console.log('isLoggedIn:', isLoggedIn);
-            console.log('currentUser:', currentUser);
-            
-            if (isLoggedIn && currentUser) {
-                console.log('✅ User is logged in, showing elements');
-                
-                // Show logged in elements
-                if (notLoggedIn) notLoggedIn.classList.add('hidden');
-                if (loggedIn) {
-                    loggedIn.classList.remove('hidden');
-                    loggedIn.style.display = 'flex';
-                }
-                
-                // FORCE SHOW "Minha Conta" link
-                if (minhaContaLink) {
-                    minhaContaLink.classList.remove('hidden');
-                    minhaContaLink.style.display = 'block';
-                    minhaContaLink.style.visibility = 'visible';
-                    console.log('✅ Minha Conta link shown');
-                }
-                
-                // FORCE SHOW cart icon and count - MULTIPLE WAYS
-                if (cartCount) {
-                    cartCount.classList.remove('hidden');
-                    cartCount.style.display = 'flex';
-                    cartCount.style.visibility = 'visible';
-                    cartCount.style.opacity = '1';
-                    cartCount.textContent = cart.length;
-                    
-                    // Also force show the parent cart button
-                    const cartButton = cartCount.closest('button');
-                    if (cartButton) {
-                        cartButton.classList.remove('hidden');
-                        cartButton.style.display = 'block';
-                        cartButton.style.visibility = 'visible';
-                    }
-                    
-                    // Force show the entire cart container
-                    const cartContainer = cartCount.closest('.relative');
-                    if (cartContainer) {
-                        cartContainer.classList.remove('hidden');
-                        cartContainer.style.display = 'block';
-                        cartContainer.style.visibility = 'visible';
-                    }
-                    
-                    console.log('✅ Cart icon forced to show with count:', cart.length);
-                }
-                
-                // Update user info in header
-                const userName = document.getElementById('userName');
-                const userInitials = document.getElementById('userInitials');
-                const userPlan = document.getElementById('userPlan');
-                const userSavings = document.getElementById('userSavings');
-                
-                if (userName) userName.textContent = currentUser.name;
-                if (userInitials) userInitials.textContent = currentUser.name.charAt(0).toUpperCase();
-                if (userPlan) userPlan.textContent = currentUser.plan;
-                if (userSavings) userSavings.textContent = `R$ ${currentUser.savings.toFixed(2)}`;
-                
-                // Update user info in Minha Conta page
-                const userNameLarge = document.getElementById('userNameLarge');
-                const userEmailLarge = document.getElementById('userEmailLarge');
-                const userInitialsLarge = document.getElementById('userInitialsLarge');
-                
-                if (userNameLarge) userNameLarge.textContent = currentUser.name;
-                if (userEmailLarge) userEmailLarge.textContent = currentUser.email;
-                if (userInitialsLarge) userInitialsLarge.textContent = currentUser.name.charAt(0).toUpperCase();
-                
-                // Update profile form fields
-                const profileName = document.getElementById('profileName');
-                const profileEmail = document.getElementById('profileEmail');
-                const profileCPF = document.getElementById('profileCPF');
-                
-                if (profileName) profileName.value = currentUser.name;
-                if (profileEmail) profileEmail.value = currentUser.email;
-                if (profileCPF) profileCPF.value = currentUser.cpf || '000.000.000-00';
-                
-                // Update subscription info
-                const currentPlanName = document.getElementById('currentPlanName');
-                const currentPlanPrice = document.getElementById('currentPlanPrice');
-                
-                if (currentPlanName) currentPlanName.textContent = `Plano ${currentUser.plan}`;
-                if (currentPlanPrice) {
-                    const prices = { 'Pro': 9.90, 'Premium': 19.90, '+Saudável': 29.90 };
-                    currentPlanPrice.textContent = `R$ ${prices[currentUser.plan] || 9.90}/mês`;
-                }
-                
-                // Update cart display
-                updateCartDisplay();
-
-            } else {
-                console.log('❌ User not logged in, hiding elements');
-                if (notLoggedIn) notLoggedIn.classList.remove('hidden');
-                if (loggedIn) loggedIn.classList.add('hidden');
-                if (minhaContaLink) minhaContaLink.classList.add('hidden');
-                
-                // Hide cart when not logged in
-                if (cartCount) {
-                    cartCount.classList.add('hidden');
-                    cartCount.style.display = 'none';
-                }
-            }
-        }
-
-        // Product search
+    }
+}
