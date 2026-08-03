@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CompraClaude — Painel Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- SheetJS para leitura de Excel/CSV/TXT no navegador -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <style>
+        .step { display: none; }
+        .step.active { display: block; }
+        .drag-over { border-color: #4f46e5 !important; background: #eef2ff !important; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+<!-- LOGIN -->
+<div id="loginScreen" class="min-h-screen flex items-center justify-center">
+    <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
+        <h1 class="text-2xl font-bold text-slate-800 mb-2">CompraClaude</h1>
+        <p class="text-slate-500 mb-6">Painel Administrativo</p>
+        <input id="adminEmail" type="email" placeholder="E-mail do admin"
+               class="w-full border rounded-lg px-4 py-3 mb-3 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <input id="adminPassword" type="password" placeholder="Senha"
+               class="w-full border rounded-lg px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <button onclick="adminLogin()"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold transition-colors">
+            Entrar
+        </button>
+        <p id="loginError" class="text-red-500 text-sm mt-3 hidden"></p>
+    </div>
+</div>
+
+<!-- PAINEL PRINCIPAL -->
+<div id="adminPanel" class="hidden">
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm sticky top-0 z-10">
+        <div class="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+            <div>
+                <h1 class="text-xl font-bold text-slate-800">CompraClaude Admin</h1>
+                <p class="text-sm text-slate-500">Importação de preços</p>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="showTab('import')"
+                        class="tab-btn px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                        data-tab="import">📥 Importar Preços</button>
+                <button onclick="showTab('history')"
+                        class="tab-btn px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                        data-tab="history">📋 Histórico</button>
+                <button onclick="showTab('review')"
+                        class="tab-btn px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                        data-tab="review">⚠️ Fila de Revisão <span id="reviewBadge" class="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full ml-1 hidden">0</span></button>
+                <button onclick="adminLogout()"
+                        class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium text-sm text-slate-600">
+                    Sair
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-6xl mx-auto px-6 py-8">
+
+        <!-- ====== TAB: IMPORTAR ====== -->
+        <div id="tab-import" class="tab-content">
+
+            <!-- STEP 1: Selecionar Mercado + Upload -->
+            <div id="step1" class="step active">
+                <h2 class="text-xl font-bold text-slate-800 mb-6">Nova Importação de Preços</h2>
+
+                <div class="bg-white rounded-2xl shadow-sm p-6 mb-6">
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">1. Selecione o mercado</label>
+                    <select id="marketSelect"
+                            class="w-full border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="">Carregando mercados...</option>
+                    </select>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm p-6">
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">2. Faça upload do arquivo</label>
+                    <p class="text-sm text-slate-500 mb-4">Aceito: CSV, TXT, Excel (.xls, .xlsx). Tamanho máximo: 10MB.</p>
+
+                    <div id="dropZone"
+                         class="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer transition-colors hover:border-indigo-400 hover:bg-indigo-50"
+                         onclick="document.getElementById('fileInput').click()"
+                         ondragover="handleDragOver(event)"
+                         ondragleave="handleDragLeave(event)"
+                         ondrop="handleDrop(event)">
+                        <div class="text-5xl mb-4">📂</div>
+                        <p class="text-slate-600 font-medium">Clique para selecionar ou arraste o arquivo aqui</p>
+                        <p class="text-sm text-slate-400 mt-1">CSV, TXT, XLS, XLSX</p>
+                    </div>
+                    <input type="file" id="fileInput" class="hidden"
+                           accept=".csv,.txt,.xls,.xlsx"
+                           onchange="handleFileSelect(event)">
+
+                    <div id="fileInfo" class="hidden mt-4 p-4 bg-green-50 rounded-lg flex items-center gap-3">
+                        <span class="text-2xl">✅</span>
+                        <div>
+                            <p id="fileName" class="font-semibold text-slate-700"></p>
+                            <p id="fileSize" class="text-sm text-slate-500"></p>
+                        </div>
+                        <button onclick="clearFile()" class="ml-auto text-red-400 hover:text-red-600 text-sm">Remover</button>
+                    </div>
+                </div>
+
+                <div class="mt-6 flex justify-end">
+                    <button onclick="goToStep2()"
+                            class="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors">
+                        Próximo: Mapear Colunas →
+                    </button>
+                </div>
+            </div>
+
+            <!-- STEP 2: Mapear Colunas -->
+            <div id="step2" class="step">
+                <div class="flex items-center gap-4 mb-6">
+                    <button onclick="goToStep(1)" class="text-indigo-600 hover:text-indigo-800 font-medium">← Voltar</button>
+                    <h2 class="text-xl font-bold text-slate-800">Mapeamento de Colunas</h2>
+                </div>
+
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+                    <p class="text-blue-800 text-sm">
+                        <strong>O sistema detectou as colunas automaticamente.</strong>
+                        Confira se as associações estão corretas e ajuste se necessário.
+                        Este mapeamento será salvo para a próxima vez que você importar deste mercado.
+                    </p>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm p-6 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-1">
+                                📛 Nome do Produto <span class="text-red-500">*</span>
+                            </label>
+                            <p class="text-xs text-slate-400 mb-2">Ex: DESCRICAO, PRODUTO, NOME</p>
+                            <select id="mapName" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <option value="">— Selecione —</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-1">
+                                💰 Preço de Venda <span class="text-red-500">*</span>
+                            </label>
+                            <p class="text-xs text-slate-400 mb-2">Ex: PRECO_VENDA, VLR_VENDA, PRECO</p>
+                            <select id="mapPrice" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <option value="">— Selecione —</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-1">
+                                🔢 Código de Barras (EAN)
+                            </label>
+                            <p class="text-xs text-slate-400 mb-2">Ex: EAN, COD_BARRAS, GTIN, BARCODE</p>
+                            <select id="mapBarcode" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <option value="">(não disponível neste arquivo)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-1">
+                                📦 Unidade de Medida
+                            </label>
+                            <p class="text-xs text-slate-400 mb-2">Ex: UNIDADE, UN, MEDIDA</p>
+                            <select id="mapUnit" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <option value="">(não disponível)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-1">
+                                🏷️ Marca
+                            </label>
+                            <p class="text-xs text-slate-400 mb-2">Ex: MARCA, FABRICANTE, BRAND</p>
+                            <select id="mapBrand" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <option value="">(não disponível)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-1">
+                                📂 Categoria
+                            </label>
+                            <p class="text-xs text-slate-400 mb-2">Ex: CATEGORIA, SECAO, DEPARTAMENTO</p>
+                            <select id="mapCategory" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <option value="">(não disponível)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Preview -->
+                <div class="bg-white rounded-2xl shadow-sm p-6 mb-6">
+                    <h3 class="font-semibold text-slate-700 mb-3">Prévia (primeiras 5 linhas do arquivo)</h3>
+                    <div class="overflow-x-auto">
+                        <table id="previewTable" class="text-sm w-full"></table>
+                    </div>
+                </div>
+
+                <div class="flex justify-end">
+                    <button onclick="goToStep3()"
+                            class="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors">
+                        Próximo: Pré-visualizar Dados →
+                    </button>
+                </div>
+            </div>
+
+            <!-- STEP 3: Confirmação e Importação -->
+            <div id="step3" class="step">
+                <div class="flex items-center gap-4 mb-6">
+                    <button onclick="goToStep(2)" class="text-indigo-600 hover:text-indigo-800 font-medium">← Voltar</button>
+                    <h2 class="text-xl font-bold text-slate-800">Confirmar e Importar</h2>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm p-6 mb-6">
+                    <div class="grid grid-cols-3 gap-6 text-center mb-6">
+                        <div class="bg-indigo-50 rounded-xl p-4">
+                            <p class="text-3xl font-bold text-indigo-600" id="totalRows">0</p>
+                            <p class="text-sm text-slate-600 mt-1">Linhas no arquivo</p>
+                        </div>
+                        <div class="bg-green-50 rounded-xl p-4">
+                            <p class="text-3xl font-bold text-green-600" id="validRows">0</p>
+                            <p class="text-sm text-slate-600 mt-1">Produtos válidos</p>
+                        </div>
+                        <div class="bg-yellow-50 rounded-xl p-4">
+                            <p class="text-3xl font-bold text-yellow-600" id="skippedRows">0</p>
+                            <p class="text-sm text-slate-600 mt-1">Ignorados (sem nome/preço)</p>
+                        </div>
+                    </div>
+
+                    <div id="step3Preview" class="overflow-x-auto max-h-96 overflow-y-auto">
+                        <!-- tabela de preview dos dados mapeados -->
+                    </div>
+                </div>
+
+                <!-- Barra de progresso (aparece durante importação) -->
+                <div id="progressSection" class="hidden bg-white rounded-2xl shadow-sm p-6 mb-6">
+                    <h3 class="font-semibold text-slate-700 mb-3">Importando...</h3>
+                    <div class="w-full bg-gray-200 rounded-full h-4 mb-2">
+                        <div id="progressBar" class="bg-indigo-600 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <p id="progressText" class="text-sm text-slate-500">Preparando...</p>
+                </div>
+
+                <!-- Resultado final -->
+                <div id="resultSection" class="hidden bg-white rounded-2xl shadow-sm p-6 mb-6">
+                    <h3 class="font-semibold text-slate-700 mb-4">Resultado da Importação</h3>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                        <div class="bg-green-50 rounded-xl p-4">
+                            <p class="text-2xl font-bold text-green-600" id="resUpdated">0</p>
+                            <p class="text-xs text-slate-600 mt-1">Preços atualizados</p>
+                        </div>
+                        <div class="bg-blue-50 rounded-xl p-4">
+                            <p class="text-2xl font-bold text-blue-600" id="resNew">0</p>
+                            <p class="text-xs text-slate-600 mt-1">Produtos novos</p>
+                        </div>
+                        <div class="bg-yellow-50 rounded-xl p-4">
+                            <p class="text-2xl font-bold text-yellow-600" id="resReview">0</p>
+                            <p class="text-xs text-slate-600 mt-1">Para revisar</p>
+                        </div>
+                        <div class="bg-red-50 rounded-xl p-4">
+                            <p class="text-2xl font-bold text-red-600" id="resErrors">0</p>
+                            <p class="text-xs text-slate-600 mt-1">Erros</p>
+                        </div>
+                    </div>
+                    <button onclick="resetImport()"
+                            class="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold">
+                        Nova Importação
+                    </button>
+                </div>
+
+                <div id="importActions" class="flex justify-end gap-3">
+                    <button onclick="resetImport()"
+                            class="px-6 py-3 border border-gray-300 rounded-lg font-medium text-slate-600 hover:bg-gray-50">
+                        Cancelar
+                    </button>
+                    <button onclick="runImport()"
+                            class="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold">
+                        ✅ Confirmar e Importar
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ====== TAB: HISTÓRICO ====== -->
+        <div id="tab-history" class="tab-content hidden">
+            <h2 class="text-xl font-bold text-slate-800 mb-6">Histórico de Importações</h2>
+            <div id="historyList" class="space-y-3">
+                <p class="text-slate-500">Carregando...</p>
+            </div>
+        </div>
+
+        <!-- ====== TAB: FILA DE REVISÃO ====== -->
+        <div id="tab-review" class="tab-content hidden">
+            <h2 class="text-xl font-bold text-slate-800 mb-2">Fila de Revisão</h2>
+            <p class="text-slate-500 mb-6">Produtos que o sistema não conseguiu identificar com certeza. Confirme se são o mesmo produto ou cadastre como novo.</p>
+            <div id="reviewList" class="space-y-4">
+                <p class="text-slate-500">Carregando...</p>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script src="../js/supabase-config.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

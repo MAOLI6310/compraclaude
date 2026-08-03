@@ -1,0 +1,13 @@
+-- ============================================================
+-- COMPRA BOA JF — Etapa 6: Geocodificação dos mercados
+-- 
+-- NÃO rode este arquivo no SQL Editor do Supabase.
+-- 
+-- COMO USAR:
+-- 1. Acesse compraclaude.vercel.app/admin/
+-- 2. Faça login como admin
+-- 3. Abra o console do navegador (F12 → aba "Console")
+-- 4. Cole o conteúdo do arquivo admin/geocode.js no console
+-- 5. Pressione Enter e aguarde (leva ~2 minutos para os 77 mercados)
+-- 6. Quando terminar, as coordenadas estarão salvas no banco
+-- ============================================================
