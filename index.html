@@ -17,6 +17,8 @@
     <!-- Leaflet (mapas OpenStreetMap) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- SDK Mercado Pago -->
+    <script src="https://sdk.mercadopago.com/js/v2"></script>
 </head>
 <body class="bg-gradient-to-br from-slate-50 to-indigo-100 min-h-screen">
     <!-- Notification System -->
@@ -674,7 +676,7 @@
                         </div>
                     </div>
                     
-                    <button onclick="selectPlan('basico')" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition-colors">
+                    <button onclick="showPaymentModal('basico')" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition-colors">
                         Escolher Básico
                     </button>
                 </div>
@@ -734,7 +736,7 @@
                         <p>A participação no sorteio mensal está condicionada à manutenção da assinatura ativa.</p>
                     </div>
                     
-                    <button onclick="selectPlan('premium')" class="w-full premium-button text-white py-3 rounded-lg font-semibold">
+                    <button onclick="showPaymentModal('premium')" class="w-full premium-button text-white py-3 rounded-lg font-semibold">
                         Escolher Premium
                     </button>
                 </div>
@@ -1968,5 +1970,6 @@
     <script src="js/map-animation.js"></script>
     <script src="js/account.js"></script>
     <script src="js/init.js"></script>
+    <script src="js/payment.js"></script>
 </body>
 </html>
